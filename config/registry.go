@@ -52,8 +52,6 @@ func InitRegistry() error {
 }
 
 func SaveRegistry() error {
-	regMu.Lock()
-	defer regMu.Unlock()
 	if err := viper.WriteConfig(); err != nil {
 		registryLogger.Printf("save failed: %v", err)
 		return fmt.Errorf("save failed")
