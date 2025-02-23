@@ -1,7 +1,9 @@
 package config
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -21,9 +23,11 @@ var (
 )
 
 type Entry struct {
-	Source string `mapstructure:"source" json:"source"`
-	Link   string `mapstructure:"link" json:"link"`
-	User   string `mapstructure:"user" json:"user"`
+	Source    string `mapstructure:"source" json:"source"`
+	Link      string `mapstructure:"link" json:"link"`
+	User      string `mapstructure:"user" json:"user"`
+	Hash      string `mapstructure:"hash" json:"hash"`
+	Available bool   `mapstructure:"available" json:"available"`
 }
 
 func InitRegistry() error {
@@ -59,21 +63,42 @@ func SaveRegistry() error {
 	return nil
 }
 
-func AddEntry(alias, source string) error {
+func AddEntry(alias, source, link string) error {
+	hash, err := computeFileHash(source)
+	if err != nil {
+		return fmt.Errorf("hash failed: %v", err)
+	}
+
 	regMu.Lock()
 	defer regMu.Unlock()
 	viper.Set(alias, Entry{
-		Source: source,
-		Link:   filepath.Join(registryDir, alias),
-		User:   os.Getenv("USERNAME"),
+		Source:    source,
+		Link:      link,
+		User:      os.Getenv("USERNAME"),
+		Hash:      hash,
+		Available: true,
 	})
 	return SaveRegistry()
 }
 
-func RemoveEntry(alias string) error {
+func RemoveEntries(aliases []string) error {
 	regMu.Lock()
 	defer regMu.Unlock()
-	viper.Set(alias, nil)
+
+	all := viper.AllSettings()
+	for _, alias := range aliases {
+		delete(all, alias)
+	}
+
+	viper.Reset()
+	viper.AddConfigPath(registryDir)
+	viper.SetConfigType(registryType)
+	viper.SetConfigName(registryName)
+
+	for k, v := range all {
+		viper.Set(k, v)
+	}
+
 	return SaveRegistry()
 }
 
@@ -90,4 +115,46 @@ func GetEntries() (map[string]Entry, error) {
 
 func SetLogOutput(output *os.File) {
 	registryLogger.SetOutput(output)
+}
+
+func computeFileHash(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func UpdateEntries() error {
+	entries, err := GetEntries()
+	if err != nil {
+		return err
+	}
+
+	regMu.Lock()
+	defer regMu.Unlock()
+	for alias, entry := range entries {
+		fileInfo, err := os.Stat(entry.Source)
+		available := err == nil && !fileInfo.IsDir()
+		if available {
+			hash, err := computeFileHash(entry.Source)
+			if err != nil || hash != entry.Hash {
+				available = false
+			}
+		}
+		viper.Set(alias, Entry{
+			Source:    entry.Source,
+			Link:      entry.Link,
+			User:      entry.User,
+			Hash:      entry.Hash,
+			Available: available,
+		})
+	}
+	return SaveRegistry()
 }

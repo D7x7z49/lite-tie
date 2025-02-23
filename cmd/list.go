@@ -23,35 +23,80 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"text/tabwriter"
 
+	"github.com/D7x7z49/lite-tie/config"
 	"github.com/spf13/cobra"
 )
 
-// listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:   "list [<name>] [--simple]",
+	Short: "List all symlinks",
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("list called")
+		simple, _ := cmd.Flags().GetBool("simple")
+		var name string
+		if len(args) > 0 {
+			name = args[0]
+		}
+		if err := handleList(name, simple); err != nil {
+			fmt.Fprintf(os.Stderr, "List failed: %v\n", err)
+			os.Exit(1)
+		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(listCmd)
+	listCmd.Flags().Bool("simple", false, "Simplify output to a table")
+}
 
-	// Here you will define your flags and configuration settings.
+func handleList(name string, simple bool) error {
+	entries, err := config.GetEntries()
+	if err != nil {
+		return err
+	}
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// listCmd.PersistentFlags().String("foo", "", "A help for foo")
+	if len(entries) == 0 {
+		fmt.Println("No entries found.")
+		return nil
+	}
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// listCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	if name != "" {
+		if entry, exists := entries[name]; exists {
+			if simple {
+				w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+				fmt.Fprintln(w, "Name\tAvailable")
+				fmt.Fprintln(w, "----\t---------")
+				fmt.Fprintf(w, "%s\t%v\n", name, entry.Available)
+				w.Flush()
+			} else {
+				fmt.Printf("Name: %s\n", name)
+				fmt.Printf("Available: %v\n", entry.Available)
+				fmt.Printf("Target: %s\n", entry.Source)
+			}
+		} else {
+			fmt.Printf("Entry '%s' not found.\n", name)
+		}
+	} else {
+		if simple {
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "Name\tAvailable")
+			fmt.Fprintln(w, "----\t---------")
+			for alias, entry := range entries {
+				fmt.Fprintf(w, "%s\t%v\n", alias, entry.Available)
+			}
+			w.Flush()
+		} else {
+			fmt.Println("---")
+			for alias, entry := range entries {
+				fmt.Printf("Name: %s\n", alias)
+				fmt.Printf("Available: %v\n", entry.Available)
+				fmt.Printf("Target: %s\n", entry.Source)
+				fmt.Println("---")
+			}
+		}
+	}
+	return nil
 }

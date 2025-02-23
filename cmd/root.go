@@ -51,4 +51,8 @@ func initConfig() {
 		fmt.Fprintf(os.Stderr, "Init failed: %v\n", err)
 		os.Exit(1)
 	}
+	if err := config.UpdateEntries(); err != nil {
+		fmt.Fprintf(os.Stderr, "Update entries failed: %v\n", err)
+		os.Exit(1)
+	}
 }
